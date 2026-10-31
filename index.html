@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#131614">
+<title>API 余额</title>
+<style>
+  :root{
+    --ground:#131614; --card:#1b1f1d; --ink:#e8eae5;
+    --steel:#9aa39c; --rule:#2f3533; --ore:#d4704e; --word:#ffd84d;
+    --edge:rgba(255,255,255,.09);
+  }
+  *{box-sizing:border-box}
+  html{color-scheme:dark}
+  body{margin:0;min-height:100vh;background:var(--ground);color:var(--ink);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased}
+  ::selection{background:var(--ink);color:var(--ground)}
+
+  /* 悬浮球 */
+  #ball{
+    position:fixed;right:20px;bottom:20px;z-index:10;
+    width:56px;height:56px;border-radius:50%;
+    border:1px solid var(--edge);background:var(--card);color:var(--word);
+    font:600 20px/1 ui-monospace,SFMono-Regular,monospace;
+    cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
+    display:grid;place-items:center;
+    transition:border-color .15s ease;
+  }
+  #ball:hover{border-color:var(--steel)}
+  #ball[aria-expanded="true"]{border-color:var(--word)}
+
+  /* 浮层 */
+  #panel{
+    position:fixed;right:20px;bottom:88px;z-index:9;
+    width:250px;padding:16px;
+    background:var(--card);border:1px solid var(--edge);border-radius:12px;
+  }
+  #panel[hidden]{display:none}
+  .row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+    padding:6px 0;border-bottom:1px solid var(--rule);font-size:12.5px;color:var(--steel)}
+  .row:last-of-type{border-bottom:0}
+  .row b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+  .total{font:600 30px/1.2 ui-monospace,SFMono-Regular,monospace;color:var(--word);
+    font-variant-numeric:tabular-nums;margin:2px 0 10px}
+  .total.empty{font-size:14px;font-weight:400;color:var(--steel);letter-spacing:0}
+  .hint{font-size:12px;color:var(--steel);margin:10px 0 0;line-height:1.6}
+  .err{color:var(--ore)}
+  input,button{font:inherit;border-radius:8px}
+  input{
+    width:100%;height:36px;padding:0 10px;margin-top:2px;
+    background:var(--ground);color:var(--ink);
+    border:1px solid var(--rule);outline:none;
+  }
+  input:focus{border-color:var(--steel)}
+  button.act{
+    height:34px;padding:0 14px;margin-top:10px;
+    background:none;border:1px solid var(--rule);color:var(--ink);
+    font-size:12.5px;cursor:pointer;
+  }
+  button.act:hover{border-color:var(--ink)}
+  .acts{display:flex;gap:8px}
+  .acts .act{flex:1}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+
+<button id="ball" aria-expanded="false" aria-controls="panel" aria-label="API 余额">¥</button>
+
+<section id="panel" hidden>
+  <div class="total" id="total">—</div>
+  <div class="row"><span>赠送</span><b id="granted">—</b></div>
+  <div class="row"><span>充值</span><b id="topped">—</b></div>
+  <p class="hint" id="hint">填入 DeepSeek API Key 后查询。</p>
+  <label class="sr" for="key">DeepSeek API Key</label>
+  <input id="key" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false">
+  <div class="acts">
+    <button class="act" id="save">保存并查询</button>
+    <button class="act" id="clear">清除</button>
+  </div>
+</section>
+
+<script>
+/* ponytail: 一个文件、零依赖。只做 DeepSeek 一家，因为它放行 CORS；
+   要加第二家，照 load() 里那 6 行复制一份即可。 */
+(function () {
+  'use strict';
+
+  const API = 'https://api.deepseek.com/user/balance';
+  const K_KEY = 'ds.balance.key';
+  const K_POS = 'ds.balance.pos';
+
+  const $ = id => document.getElementById(id);
+  const ball = $('ball'), panel = $('panel'), hint = $('hint');
+
+  /* ── 位置：拖动 + 记住，窗口变化时夹回可视区 ────────────── */
+  function clamp(x, y) {
+    const w = innerWidth, h = innerHeight, s = 56, m = 4;
+    return [
+      Math.min(Math.max(x, m), w - s - m),
+      Math.min(Math.max(y, m), h - s - m)
+    ];
+  }
+  function place(x, y) {
+    const [cx, cy] = clamp(x, y);
+    ball.style.left = cx + 'px';
+    ball.style.top = cy + 'px';
+    ball.style.right = 'auto';
+    ball.style.bottom = 'auto';
+    return [cx, cy];
+  }
+  try {
+    const p = JSON.parse(localStorage.getItem(K_POS) || 'null');
+    if (p) place(p[0], p[1]);
+  } catch (e) {}
+
+  let drag = null;
+  ball.addEventListener('pointerdown', e => {
+    const r = ball.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
+    ball.setPointerCapture(e.pointerId);
+    ball.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  ball.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const x = e.clientX - drag.dx, y = e.clientY - drag.dy;
+    if (Math.abs(x - ball.offsetLeft) > 2 || Math.abs(y - ball.offsetTop) > 2) drag.moved = true;
+    place(x, y);
+  });
+  ball.addEventListener('pointerup', e => {
+    if (!drag) return;
+    ball.style.cursor = 'grab';
+    const moved = drag.moved; drag = null;
+    if (moved) {
+      localStorage.setItem(K_POS, JSON.stringify([ball.offsetLeft, ball.offsetTop]));
+      keepPanelNear();
+    } else {
+      toggle();
+    }
+  });
+  addEventListener('resize', () => {
+    if (ball.style.left) place(ball.offsetLeft, ball.offsetTop);
+    keepPanelNear();
+  });
+
+  /* 浮层跟着球走，贴在球上方 */
+  function keepPanelNear() {
+    if (panel.hidden) return;
+    const r = ball.getBoundingClientRect();
+    const w = 250, gap = 12;
+    let left = Math.min(Math.max(r.left + r.width - w, 8), innerWidth - w - 8);
+    let top = r.top - panel.offsetHeight - gap;
+    if (top < 8) top = r.bottom + gap;           // 上方放不下就落到下方
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  }
+
+  /* ── 查询 ─────────────────────────────────────────────── */
+  function setHint(text, isErr) {
+    hint.textContent = text;
+    hint.className = 'hint' + (isErr ? ' err' : '');
+  }
+  function paint(info) {
+    if (!info || !info.currency) {
+      $('total').textContent = '未连接';
+      $('total').classList.add('empty');
+      $('granted').textContent = '—';
+      $('topped').textContent = '—';
+      return;
+    }
+    const cur = info.currency === 'USD' ? '$' : '¥';
+    $('total').classList.remove('empty');
+    $('total').textContent = cur + info.total_balance;
+    $('granted').textContent = cur + info.granted_balance;
+    $('topped').textContent = cur + info.topped_up_balance;
+  }
+
+  async function load() {
+    const key = localStorage.getItem(K_KEY);
+    $('key').value = key || '';
+    if (!key) { paint(null); setHint('填入 DeepSeek API Key 后查询。'); return; }
+
+    setHint('查询中…');
+    try {
+      const r = await fetch(API, { headers: { Authorization: 'Bearer ' + key } });
+      if (r.status === 401) { paint(null); setHint('Key 无效或已撤销。', true); return; }
+      if (!r.ok) { setHint('查询失败：HTTP ' + r.status, true); return; }
+      const d = await r.json();
+      const info = (d.balance_infos || [])[0];
+      paint(info);
+      const when = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      setHint(d.is_available === false ? '账户不可用（余额不足？）' : '更新于 ' + when, d.is_available === false);
+    } catch (e) {
+      setHint('网络不通，或 Key 被浏览器拦下。', true);
+    }
+  }
+
+  function toggle() {
+    const open = panel.hidden;
+    panel.hidden = !open;
+    ball.setAttribute('aria-expanded', String(open));
+    if (open) { keepPanelNear(); load(); }
+  }
+
+  $('save').addEventListener('click', () => {
+    const v = $('key').value.trim();
+    if (!v) return;
+    localStorage.setItem(K_KEY, v);
+    load();
+  });
+  $('clear').addEventListener('click', () => {
+    localStorage.removeItem(K_KEY);
+    $('key').value = '';
+    paint(null);
+    setHint('已清除本机保存的 Key。');
+  });
+  $('key').addEventListener('keydown', e => { if (e.key === 'Enter') $('save').click(); });
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) toggle(); });
+
+  /* ── 自检：?selftest 跑一遍夹取与格式化 ────────────────── */
+  if (location.search.includes('selftest')) {
+    const out = [];
+    const eq = (name, got, want) => out.push((JSON.stringify(got) === JSON.stringify(want) ? 'PASS ' : 'FAIL ') + name);
+    eq('clamp 左下', clamp(-50, -50), [4, 4]);
+    eq('clamp 右下', clamp(9999, 9999), [innerWidth - 60, innerHeight - 60]);
+    document.title = out.join(' | ');
+    console.log(out.join('\n'));
+  }
+})();
+</script>
+</body>
+</html>
