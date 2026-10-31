@@ -87,7 +87,19 @@ async function fetchBalance(cfg) {
  *   { "data": { "balance": 12.34 } }
  */
 function parseBalance(json) {
-  // 常见字段名都试一遍；都不中就抛错，并把原始返回带出去好排查
+  // ① DeepSeek 官方接口：{ is_available, balance_infos: [{ currency, total_balance, ... }] }
+  const infos = json.balance_infos;
+  if (Array.isArray(infos) && infos.length) {
+    const i = infos[0];
+    return {
+      amount: Number(i.total_balance),
+      currency: i.currency || "",
+      granted: i.granted_balance,
+      topped: i.topped_up_balance,
+    };
+  }
+
+  // ② 兜底：常见字段名都试一遍
   const flat = [json, json.data, json.result, json.account].filter(Boolean);
   const keys = ["balance", "credits", "credit", "amount", "remaining", "quota", "money"];
   let raw = null;
@@ -139,7 +151,7 @@ function paint(data, meta) {
 
   w.addSpacer(4);
 
-  const label = w.addText("Discord 余额");
+  const label = w.addText("DeepSeek 余额");
   label.font = Font.systemFont(10);
   label.textColor = new Color("#8b919e");
   label.centerAlignText();
