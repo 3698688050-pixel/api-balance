@@ -185,29 +185,32 @@ function formatMoney(d) {
 (async () => {
 const inApp = !config.runsInWidget;   // 在 Scriptable App 里跑 = true
 
-// ── 首次配置：在 App 里跑且没配置过，就弹窗问 ──────────────
+/** 弹窗问配置。返回 {apiUrl, token} 或 null（用户取消）。 */
+async function askConfig(cur) {
+  const a = new Alert();
+  a.title = cur ? "重新填写" : "首次配置";
+  a.message = "填一次，存在这台设备上，以后不用再填。";
+  a.addTextField("接口地址，https://...", cur ? cur.apiUrl : "");
+  a.addTextField("Token", cur ? cur.token : "");
+  a.addAction("保存");
+  a.addCancelAction("取消");
+
+  if (await a.present() !== 0) return null;
+
+  const out = {
+    apiUrl: a.textFieldValue(0).trim(),
+    token: a.textFieldValue(1).trim(),
+  };
+  if (!out.apiUrl || !out.token) return null;
+  writeConfig(out);
+  return out;
+}
+
 let cfg = readConfig();
 
 if (!cfg && inApp) {
-  const setup = new Alert();
-  setup.title = "首次配置";
-  setup.message = "填一次，存在这台设备上，以后不用再填。";
-  setup.addTextField("接口地址，https://...", "");
-  setup.addTextField("Token", "");
-  setup.addAction("保存");
-  setup.addCancelAction("取消");
-
-  if (await setup.present() !== 0) {   // 用户点了取消
-    Script.complete();
-    return;
-  }
-
-  cfg = {
-    apiUrl: setup.textFieldValue(0).trim(),
-    token: setup.textFieldValue(1).trim(),
-  };
-
-  if (!cfg.apiUrl || !cfg.token) {
+  cfg = await askConfig(null);
+  if (!cfg) {
     const bad = new Alert();
     bad.title = "没填完";
     bad.message = "接口地址和 Token 都要填。再运行一次脚本即可重填。";
@@ -216,7 +219,6 @@ if (!cfg && inApp) {
     Script.complete();
     return;
   }
-  writeConfig(cfg);
 }
 
 // 组件里跑但还没配置过：直接给出提示，不联网
@@ -248,24 +250,26 @@ let data = null;
 let meta = { ts: Date.now(), fromCache: false, error: null };
 
 if (!inApp && isFresh) {
-  // ── 组件内 + 缓存还新鲜：一次网络都不发
   data = cache.data;
   meta = { ts: cache.ts, fromCache: true, error: null };
 } else {
-  // ── 缓存过期，或在 App 内手动运行：必须请求
   try {
     data = await fetchBalance(cfg);
     writeCache(data);
     meta = { ts: Date.now(), fromCache: false, error: null };
   } catch (e) {
+    // 401/403 时把 token 的指纹带出来，方便你对比是不是贴错了
+    let msg = e.message;
+    if (/Token/.test(msg)) {
+      const t = cfg.token;
+      msg += "（你填的：长度 " + t.length + "，开头 " + t.slice(0, 6) + "…，结尾 …" + t.slice(-4) + "）";
+    }
     if (cache) {
-      // 请求挂了，但手里有旧数据：继续展示，标注失败
       data = cache.data;
-      meta = { ts: cache.ts, fromCache: true, error: e.message };
+      meta = { ts: cache.ts, fromCache: true, error: msg };
     } else {
-      // 连旧数据都没有（首次运行就断网）
       data = null;
-      meta = { ts: Date.now(), fromCache: false, error: e.message };
+      meta = { ts: Date.now(), fromCache: false, error: msg };
     }
   }
 }
@@ -273,18 +277,49 @@ if (!inApp && isFresh) {
 const widget = paint(data, meta);
 Script.setWidget(widget);
 
-// 在 App 里跑：弹结果，并直接展示组件预览
 if (inApp) {
   const a = new Alert();
+  const needFix = !!meta.error && /Token/.test(meta.error);
+
   if (meta.error) {
     a.title = "刷新失败";
     a.message = meta.error + (data ? "\n\n界面继续显示缓存（" + ago(meta.ts) + "）。" : "");
   } else {
     a.title = "刷新成功";
-    a.message = (data ? formatMoney(data) : "无数据") + "\n更新于 " + new Date().toLocaleTimeString("zh-CN");
+    a.message = (data ? formatMoney(data) : "无数据") +
+                "\n更新于 " + new Date().toLocaleTimeString("zh-CN");
   }
+
+  if (needFix) a.addAction("重新填写");
   a.addAction("好");
-  await a.present();
+
+  const idx = await a.present();
+
+  // 点了「重新填写」：重来一遍，成功就立刻再查一次
+  if (needFix && idx === 0) {
+    const again = await askConfig(cfg);
+    if (again) {
+      try {
+        const d2 = await fetchBalance(again);
+        writeCache(d2);
+        const ok = new Alert();
+        ok.title = "这次通了";
+        ok.message = formatMoney(d2);
+        ok.addAction("好");
+        await ok.present();
+        await paint(d2, { ts: Date.now(), fromCache: false, error: null }).presentMedium();
+        Script.complete();
+        return;
+      } catch (e2) {
+        const fail = new Alert();
+        fail.title = "还是不行";
+        fail.message = e2.message;
+        fail.addAction("好");
+        await fail.present();
+      }
+    }
+  }
+
   await widget.presentMedium();
 }
 
