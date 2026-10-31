@@ -75,6 +75,7 @@ async function fetchBalance(cfg) {
   const code = req.response ? req.response.statusCode : 0;
 
   if (code === 401 || code === 403) throw new Error("Token 无效");
+  if (code === 404) throw new Error("HTTP 404 · 地址不对（DeepSeek 是 https://api.deepseek.com/user/balance）");
   if (code !== 200) throw new Error("HTTP " + code);
 
   return parseBalance(JSON.parse(text));
@@ -264,6 +265,9 @@ if (!inApp && isFresh) {
       const t = cfg.token;
       msg += "（你填的：长度 " + t.length + "，开头 " + t.slice(0, 6) + "…，结尾 …" + t.slice(-4) + "）";
     }
+    if (/HTTP/.test(msg)) {
+      msg += "\n\n当前地址：" + cfg.apiUrl;
+    }
     if (cache) {
       data = cache.data;
       meta = { ts: cache.ts, fromCache: true, error: msg };
@@ -279,7 +283,7 @@ Script.setWidget(widget);
 
 if (inApp) {
   const a = new Alert();
-  const needFix = !!meta.error && /Token/.test(meta.error);
+  const needFix = !!meta.error;
 
   if (meta.error) {
     a.title = "刷新失败";
