@@ -19,6 +19,7 @@ const DEFAULTS = {
   maxAge: 5 * 60 * 1000,     // 缓存有效期：5 分钟
   timeout: 10,               // 网络超时（秒）
   accent: "#5865F2",         // Discord 蓝紫
+  lowBalance: 5,             // 低于这个数就报警（单位同接口返回的币种）
 };
 
 const fm = FileManager.local();
@@ -145,7 +146,8 @@ function paint(data, meta) {
 
   const head = w.addText(data ? formatMoney(data) : "—");
   head.font = Font.boldSystemFont(config.widgetFamily === "medium" ? 32 : 24);
-  head.textColor = new Color(meta.error ? "#ff6b6b" : DEFAULTS.accent);
+  const low = data && isFinite(data.amount) && data.amount < DEFAULTS.lowBalance;
+  head.textColor = new Color(meta.error ? "#ff6b6b" : low ? "#ffb020" : DEFAULTS.accent);
   head.centerAlignText();
   head.lineLimit = 1;
   head.minimumScaleFactor = 0.5;
@@ -161,7 +163,8 @@ function paint(data, meta) {
 
   // 底部一行永远说明数据新旧，避免「卡在旧数据上还以为是真的」
   let note;
-  if (meta.error && meta.fromCache) note = "获取失败 · 显示 " + ago(meta.ts);
+  if (low) note = "余额不足 ¥" + DEFAULTS.lowBalance + " · 换 deepseek2";
+  else if (meta.error && meta.fromCache) note = "获取失败 · 显示 " + ago(meta.ts);
   else if (meta.error) note = "获取失败 · " + meta.error;
   else if (meta.fromCache) note = "缓存 · " + ago(meta.ts);
   else note = "已更新 · " + ago(meta.ts);
