@@ -33,12 +33,13 @@ function fmt(info) {
 async function fetchBalance(key) {
   const req = new Request(API);
   req.headers = { Authorization: "Bearer " + key };
-  try {
-    const json = await req.loadJSON();
-    return fmt(pickInfo(json));
-  } catch (e) {
-    return null;
-  }
+  let text;
+  try { text = await req.loadString(); } catch (e) { return { err: "查询失败" }; }
+  const code = req.response ? req.response.statusCode : 0;
+  if (code === 401) return { err: "Key 无效" };
+  if (code !== 200) return { err: "HTTP " + code };
+  try { return fmt(pickInfo(JSON.parse(text))) || { err: "返回异常" }; }
+  catch (e) { return { err: "解析失败" }; }
 }
 
 // —— 画 ——
@@ -49,7 +50,15 @@ function paint(data, label) {
   w.url = PAGE;
   w.refreshAfterDate = new Date(Date.now() + 30 * 60 * 1000);
 
-  if (data) {
+  if (data && data.err) {
+    const t = w.addText(data.err);
+    t.font = Font.boldSystemFont(14);
+    t.textColor = new Color("#d4704e");
+    w.addSpacer(4);
+    const d = w.addText("长按组件 · 运行脚本");
+    d.font = Font.systemFont(10);
+    d.textColor = new Color(STEEL);
+  } else if (data) {
     const head = w.addText(data.total);
     head.font = Font.systemFont(config.widgetFamily === "medium" ? 30 : 24);
     head.textColor = new Color(WORD);
@@ -81,7 +90,8 @@ function paint(data, label) {
 }
 
 // —— 主流程 ——
-let key = Keychain.get(KEYCHAIN);
+let key = null;
+try { key = Keychain.get(KEYCHAIN); } catch (e) { key = null; }   // 键不存在时 Scriptable 会抛，不是返回 null
 
 if (!key && !config.runsInWidget) {
   const a = new Alert();
