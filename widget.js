@@ -11,7 +11,8 @@ const KEYCHAIN = "deepseek.balance.key";
 const API = "https://api.deepseek.com/user/balance";
 const PAGE = "https://3698688050-pixel.github.io/api-balance/";
 
-const INK = "#e8eae5", STEEL = "#9aa39c", WORD = "#ffd84d", GROUND = "#131614";
+// DeepSeek 品牌蓝 + 白底
+const BLUE = "#4d6bfe", BG = "#ffffff", GRAY = "#8a8f98", RED = "#d92d20";
 
 // —— 纯函数：解析与格式化，可在 node 里单独测 ——
 function pickInfo(json) {
@@ -45,47 +46,61 @@ async function fetchBalance(key) {
 // —— 画 ——
 function paint(data, label) {
   const w = new ListWidget();
-  w.backgroundColor = new Color(GROUND);
-  w.setPadding(14, 16, 14, 16);
+  w.backgroundColor = new Color(BG);
+  w.setPadding(12, 10, 12, 10);
+  w.centerAlignContent();
   w.url = PAGE;
   w.refreshAfterDate = new Date(Date.now() + 30 * 60 * 1000);
+
+  const big = config.widgetFamily === "medium" ? 34 : 26;
 
   if (data && data.err) {
     const t = w.addText(data.err);
     t.font = Font.boldSystemFont(14);
-    t.textColor = new Color("#d4704e");
-    w.addSpacer(4);
+    t.textColor = new Color(RED);
+    t.centerAlignText();
+    w.addSpacer(6);
     const d = w.addText("长按组件 · 运行脚本");
-    d.font = Font.systemFont(10);
-    d.textColor = new Color(STEEL);
-  } else if (data) {
-    const head = w.addText(data.total);
-    head.font = Font.systemFont(config.widgetFamily === "medium" ? 30 : 24);
-    head.textColor = new Color(WORD);
-    head.minimumScaleFactor = 0.6;
-
-    w.addSpacer(4);
-    const sub = w.addText(label || "DeepSeek");
-    sub.font = Font.systemFont(10);
-    sub.textColor = new Color(STEEL);
-
-    if (config.widgetFamily === "medium") {
-      w.addSpacer(6);
-      const line = w.addText("赠送 " + data.granted + "   充值 " + data.topped);
-      line.font = Font.systemFont(11);
-      line.textColor = new Color(STEEL);
-    }
-  } else {
-    const t = w.addText("未配置");
-    t.font = Font.boldSystemFont(15);
-    t.textColor = new Color(WORD);
-    w.addSpacer(4);
-    const d = w.addText(label || "点开填 Key");
-    d.font = Font.systemFont(10);
-    d.textColor = new Color(STEEL);
+    d.font = Font.systemFont(9);
+    d.textColor = new Color(GRAY);
+    d.centerAlignText();
+    return w;
   }
 
-  w.addSpacer();
+  if (!data) {
+    const t = w.addText("未配置");
+    t.font = Font.boldSystemFont(14);
+    t.textColor = new Color(GRAY);
+    t.centerAlignText();
+    w.addSpacer(6);
+    const d = w.addText(label || "点开填 Key");
+    d.font = Font.systemFont(9);
+    d.textColor = new Color(GRAY);
+    d.centerAlignText();
+    return w;
+  }
+
+  const head = w.addText(data.total);
+  head.font = Font.boldSystemFont(big);
+  head.textColor = new Color(BLUE);
+  head.centerAlignText();
+  head.lineLimit = 1;
+  head.minimumScaleFactor = 0.5;
+
+  w.addSpacer(4);
+  const sub = w.addText(label || "DeepSeek");
+  sub.font = Font.systemFont(10);
+  sub.textColor = new Color(GRAY);
+  sub.centerAlignText();
+
+  if (config.widgetFamily === "medium") {
+    w.addSpacer(6);
+    const line = w.addText("赠送 " + data.granted + "　充值 " + data.topped);
+    line.font = Font.systemFont(10);
+    line.textColor = new Color(GRAY);
+    line.centerAlignText();
+  }
+
   return w;
 }
 
