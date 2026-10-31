@@ -48,9 +48,11 @@ function paint(data, label) {
   const w = new ListWidget();
   w.backgroundColor = new Color(BG);
   w.setPadding(12, 10, 12, 10);
-  w.centerAlignContent();
   w.url = PAGE;
   w.refreshAfterDate = new Date(Date.now() + 30 * 60 * 1000);
+
+  // 上下各一个弹性空隔 = 内容垂直居中（centerAlignContent() 在部分版本已被移除）
+  w.addSpacer();
 
   const big = config.widgetFamily === "medium" ? 34 : 26;
 
@@ -59,48 +61,49 @@ function paint(data, label) {
     t.font = Font.boldSystemFont(14);
     t.textColor = new Color(RED);
     t.centerAlignText();
+
     w.addSpacer(6);
     const d = w.addText("长按组件 · 运行脚本");
     d.font = Font.systemFont(9);
     d.textColor = new Color(GRAY);
     d.centerAlignText();
-    return w;
-  }
 
-  if (!data) {
+  } else if (!data) {
     const t = w.addText("未配置");
     t.font = Font.boldSystemFont(14);
     t.textColor = new Color(GRAY);
     t.centerAlignText();
+
     w.addSpacer(6);
     const d = w.addText(label || "点开填 Key");
     d.font = Font.systemFont(9);
     d.textColor = new Color(GRAY);
     d.centerAlignText();
-    return w;
+
+  } else {
+    const head = w.addText(data.total);
+    head.font = Font.boldSystemFont(big);
+    head.textColor = new Color(BLUE);
+    head.centerAlignText();
+    head.lineLimit = 1;
+    head.minimumScaleFactor = 0.5;
+
+    w.addSpacer(4);
+    const sub = w.addText(label || "DeepSeek");
+    sub.font = Font.systemFont(10);
+    sub.textColor = new Color(GRAY);
+    sub.centerAlignText();
+
+    if (config.widgetFamily === "medium") {
+      w.addSpacer(6);
+      const line = w.addText("赠送 " + data.granted + "　充值 " + data.topped);
+      line.font = Font.systemFont(10);
+      line.textColor = new Color(GRAY);
+      line.centerAlignText();
+    }
   }
 
-  const head = w.addText(data.total);
-  head.font = Font.boldSystemFont(big);
-  head.textColor = new Color(BLUE);
-  head.centerAlignText();
-  head.lineLimit = 1;
-  head.minimumScaleFactor = 0.5;
-
-  w.addSpacer(4);
-  const sub = w.addText(label || "DeepSeek");
-  sub.font = Font.systemFont(10);
-  sub.textColor = new Color(GRAY);
-  sub.centerAlignText();
-
-  if (config.widgetFamily === "medium") {
-    w.addSpacer(6);
-    const line = w.addText("赠送 " + data.granted + "　充值 " + data.topped);
-    line.font = Font.systemFont(10);
-    line.textColor = new Color(GRAY);
-    line.centerAlignText();
-  }
-
+  w.addSpacer();
   return w;
 }
 
